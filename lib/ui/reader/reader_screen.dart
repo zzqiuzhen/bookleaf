@@ -54,9 +54,17 @@ class _ReaderScreenState extends State<ReaderScreen>
   ui.Image? _nextImg;
 
   _TurnDir _dir = _TurnDir.none;
-  double _turn = 0;
+  final ValueNotifier<double> _turn = ValueNotifier<double>(0);
   double _dragAccum = 0;
+  double _dragVelocity = 0;
+  Offset? _downPos;
+  DateTime? _downAt;
+  Offset? _lastMovePos;
+  DateTime? _lastMoveAt;
   AnimationController? _turnCtrl;
+
+  /// Painted while a turn is in flight; the pages underneath stay untouched.
+  CurlPainter? _painter;
 
   late final AppLifecycleListener _lifecycle;
 
@@ -74,6 +82,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _settingsStore.removeListener(_onSettingsChanged);
     _lifecycle.dispose();
     _turnCtrl?.dispose();
+    _turn.dispose();
     _curImg?.dispose();
     _prevImg?.dispose();
     _nextImg?.dispose();
@@ -196,44 +205,75 @@ class _ReaderScreenState extends State<ReaderScreen>
   bool get _canCurlBackward => _curImg != null && _prevImg != null;
 
   // ---------------------------------------------------------------- turning
+  void _beginTurn(_TurnDir dir) {
+    if (_dir == dir) return;
+    _turnCtrl?.stop();
+    _turn.value = 0;
+    setState(() {
+      _dir = dir;
+      _painter = null;
+    });
+    _ensurePainter();
+  }
+
+  /// Builds the curl painter for the current direction (once per turn).
+  void _ensurePainter() {
+    if (_dir == _TurnDir.none) return;
+    final cur = _curImg;
+    if (cur == null) return;
+    final forward = _dir == _TurnDir.forward;
+    final top = forward ? _nextImg : _prevImg;
+    if (top == null) return;
+    if (_painter != null && _painter!.forward == forward) return;
+    setState(() {
+      _painter = CurlPainter(
+        // "current" is the sheet being turned, "next" is what it reveals.
+        current: cur,
+        next: top,
+        forward: forward,
+        paperColor: paletteFor(_s.theme).paperBack,
+        progress: _turn,
+      );
+    });
+  }
+
   void _startProgrammaticTurn(_TurnDir dir) {
     if (_dir != _TurnDir.none) return;
     if (dir == _TurnDir.forward && !_hasNext) return;
     if (dir == _TurnDir.backward && !_hasPrev) return;
-    setState(() {
-      _dir = dir;
-      _turn = 0;
-    });
-    _animateTurn(toComplete: true);
+    _beginTurn(dir);
+    _animateTurn(toComplete: true, fling: true);
   }
 
-  void _animateTurn({required bool toComplete}) {
+  void _animateTurn({required bool toComplete, bool fling = false}) {
     final target = toComplete ? 1.0 : 0.0;
-    final distance = (target - _turn).abs();
-    final duration = Duration(milliseconds: (60 + 240 * distance).round());
+    final distance = (target - _turn.value).abs();
+    // Long enough to read as paper: a full turn takes ~520 ms, a flick ~300 ms.
+    final ms = fling
+        ? (300 + 220 * distance).round()
+        : (200 + 380 * distance).round();
     _turnCtrl?.dispose();
-    final ctrl = AnimationController(vsync: this, duration: duration);
-    final anim = Tween<double>(begin: _turn, end: target).animate(
+    final ctrl = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: ms.clamp(160, 620)),
+    );
+    final anim = Tween<double>(begin: _turn.value, end: target).animate(
       CurvedAnimation(
         parent: ctrl,
-        curve: toComplete ? Curves.easeOutCubic : Curves.easeOut,
+        curve: toComplete ? Curves.easeOutCubic : Curves.easeOutQuart,
       ),
     );
-    anim.addListener(() {
-      if (!mounted) return;
-      setState(() => _turn = anim.value);
-    });
+    anim.addListener(() => _turn.value = anim.value);
     ctrl.addStatusListener((status) {
-      if (!mounted) return;
-      if (status == AnimationStatus.completed) {
-        if (target >= 1.0) {
-          _commitTurn();
-        } else {
-          setState(() {
-            _turn = 0;
-            _dir = _TurnDir.none;
-          });
-        }
+      if (!mounted || status != AnimationStatus.completed) return;
+      if (target >= 1.0) {
+        _commitTurn();
+      } else {
+        setState(() {
+          _turn.value = 0;
+          _dir = _TurnDir.none;
+          _painter = null;
+        });
       }
     });
     _turnCtrl = ctrl;
@@ -244,52 +284,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     final delta = _dir == _TurnDir.forward ? 1 : -1;
     setState(() {
       _page = (_page + delta).clamp(0, (_layout?.totalPages ?? 1) - 1);
-      _turn = 0;
+      _turn.value = 0;
       _dir = _TurnDir.none;
+      _painter = null;
     });
     _saveProgress();
     _scheduleCapture();
-  }
-
-  void _onDragStart(DragStartDetails d) {
-    if (_loading || _layout == null) return;
-    if (_s.turn != PageTurnStyle.curl || !_canCurlForward && !_canCurlBackward) {
-      return;
-    }
-    _dragAccum = 0;
-    _turnCtrl?.stop();
-  }
-
-  void _onDragUpdate(DragUpdateDetails d) {
-    if (_s.turn != PageTurnStyle.curl) return;
-    _dragAccum += d.delta.dx;
-    final width = MediaQuery.sizeOf(context).width;
-    if (_dir == _TurnDir.none) {
-      if (_dragAccum < -10 && _hasNext && _curImg != null && _nextImg != null) {
-        setState(() => _dir = _TurnDir.forward);
-      } else if (_dragAccum > 10 &&
-          _hasPrev &&
-          _curImg != null &&
-          _prevImg != null) {
-        setState(() => _dir = _TurnDir.backward);
-      } else {
-        return;
-      }
-    }
-    final magnitude = ((_dragAccum.abs() - 10) / width).clamp(0.0, 1.0);
-    setState(() => _turn = magnitude);
-    if (magnitude >= 0.999) _commitTurn();
-  }
-
-  void _onDragEnd(DragEndDetails d) {
-    if (_dir == _TurnDir.none) return;
-    final velocity = d.primaryVelocity ?? 0;
-    final quick = velocity.abs() > 420;
-    final sameDirection =
-        (_dir == _TurnDir.forward && velocity < 0) ||
-            (_dir == _TurnDir.backward && velocity > 0);
-    final complete = (quick && sameDirection) || _turn > 0.3;
-    _animateTurn(toComplete: complete);
   }
 
   void _goNext() {
@@ -325,9 +325,85 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   // ---------------------------------------------------------------- gesture
-  void _handleTap(TapUpDetails d) {
+  bool get _curlGestureAvailable =>
+      _s.turn == PageTurnStyle.curl && (_canCurlForward || _canCurlBackward);
+
+  void _onPointerDown(PointerDownEvent e) {
+    if (_loading || _layout == null) return;
+    _downPos = e.localPosition;
+    _downAt = DateTime.now();
+    _lastMovePos = e.localPosition;
+    _lastMoveAt = _downAt;
+    _dragAccum = 0;
+    _dragVelocity = 0;
+    _turnCtrl?.stop();
+  }
+
+  void _onPointerMove(PointerMoveEvent e) {
+    if (_downPos == null || !_curlGestureAvailable) return;
     final width = MediaQuery.sizeOf(context).width;
-    final x = d.localPosition.dx;
+    _dragAccum += e.delta.dx;
+
+    final now = DateTime.now();
+    if (_lastMovePos != null && _lastMoveAt != null) {
+      final dt = now.difference(_lastMoveAt!).inMicroseconds;
+      if (dt > 0) {
+        _dragVelocity = 0.7 * _dragVelocity +
+            0.3 * (e.delta.dx / (dt / 1000000));
+      }
+    }
+    _lastMovePos = e.localPosition;
+    _lastMoveAt = now;
+
+    if (_dir == _TurnDir.none) {
+      final wantForward = _dragAccum < 0;
+      if (wantForward && _canCurlForward) {
+        _beginTurn(_TurnDir.forward);
+      } else if (!wantForward && _canCurlBackward) {
+        _beginTurn(_TurnDir.backward);
+      }
+      if (_dir == _TurnDir.none) return;
+    }
+
+    // Fire the curl as soon as the finger moves: no dead zone, and the sheet
+    // tracks the finger 1:1 across ~92% of the page width.
+    final mag = (_dragAccum.abs() / (width * 0.92)).clamp(0.0, 1.0);
+    _turn.value = mag;
+    if (mag >= 0.999) _commitTurn();
+  }
+
+  void _onPointerUp(PointerUpEvent e) {
+    final down = _downPos;
+    final at = _downAt;
+    _downPos = null;
+    _downAt = null;
+    if (down == null || at == null) return;
+
+    final moved = (e.localPosition - down).distance;
+    final elapsed = DateTime.now().difference(at);
+    if (_dir == _TurnDir.none) {
+      if (moved < 12 && elapsed < Duration(milliseconds: 400)) {
+        _handleTapAt(e.localPosition);
+      }
+      return;
+    }
+    if (moved < 12) {
+      // a tap that happened to start a turn: undo it quietly
+      _animateTurn(toComplete: false);
+      return;
+    }
+    final velocity = _dragVelocity.abs() > 1 ? _dragVelocity : 0.0;
+    final flick = velocity.abs() > 650;
+    final sameDirection =
+        (_dir == _TurnDir.forward && velocity < 0) ||
+            (_dir == _TurnDir.backward && velocity > 0);
+    final complete = (flick && sameDirection) || _turn.value > 0.32;
+    _animateTurn(toComplete: complete);
+  }
+
+  void _handleTapAt(Offset local) {
+    final width = MediaQuery.sizeOf(context).width;
+    final x = local.dx;
     if (_chrome) {
       setState(() => _chrome = false);
       return;
@@ -350,12 +426,11 @@ class _ReaderScreenState extends State<ReaderScreen>
       backgroundColor: palette.background,
       body: _loading
           ? _buildLoading(palette)
-          : GestureDetector(
+          : Listener(
               behavior: HitTestBehavior.opaque,
-              onTapUp: _handleTap,
-              onHorizontalDragStart: _onDragStart,
-              onHorizontalDragUpdate: _onDragUpdate,
-              onHorizontalDragEnd: _onDragEnd,
+              onPointerDown: _onPointerDown,
+              onPointerMove: _onPointerMove,
+              onPointerUp: _onPointerUp,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -395,17 +470,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         if (_hasNext)
           RepaintBoundary(key: _nextKey, child: _pageWidget(_page + 1)),
         RepaintBoundary(key: _curKey, child: _pageWidget(_page)),
-        if (_dir != _TurnDir.none && _curImg != null)
+        if (_painter != null)
           IgnorePointer(
-            child: CustomPaint(
-              painter: CurlPainter(
-                current: _dir == _TurnDir.forward ? _curImg! : (_prevImg ?? _curImg!),
-                next: _dir == _TurnDir.forward ? (_nextImg ?? _curImg!) : _curImg!,
-                progress: _turn,
-                forward: _dir == _TurnDir.forward,
-                paperColor: palette.paperBack,
-              ),
-            ),
+            child: RepaintBoundary(child: CustomPaint(painter: _painter)),
           ),
       ],
     );

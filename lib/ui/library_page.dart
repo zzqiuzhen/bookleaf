@@ -123,7 +123,7 @@ class _LibraryPageState extends State<LibraryPage> {
           else ...[
             const SliverToBoxAdapter(child: SizedBox(height: 4)),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(22, 8, 22, 40),
+              padding: const EdgeInsets.fromLTRB(22, 8, 22, 132),
               sliver: SliverGrid(
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: columns,
@@ -324,7 +324,7 @@ class _EmptyLibrary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(32, 0, 32, 60),
+      padding: const EdgeInsets.fromLTRB(32, 0, 32, 132),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [

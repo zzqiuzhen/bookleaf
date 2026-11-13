@@ -75,7 +75,7 @@ class _ReadingNowPageState extends State<ReadingNowPage> {
             SliverFillRemaining(
               hasScrollBody: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(32, 0, 32, 60),
+                padding: const EdgeInsets.fromLTRB(32, 0, 32, 132),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -201,7 +201,7 @@ class _ReadingNowPageState extends State<ReadingNowPage> {
                 ),
               ),
             ],
-            const SliverToBoxAdapter(child: SizedBox(height: 30)),
+            const SliverToBoxAdapter(child: SizedBox(height: 124)),
           ],
         ],
       ),

@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'services/demo_data.dart';
 import 'services/library_store.dart';
 import 'services/settings_store.dart';
+import 'ui/glass_tab_bar.dart';
 import 'ui/library_page.dart';
 import 'ui/reading_now_page.dart';
 
@@ -54,41 +55,56 @@ class BookLeafApp extends StatelessWidget {
   }
 }
 
-class RootTabs extends StatelessWidget {
+class RootTabs extends StatefulWidget {
   const RootTabs({super.key, required this.store});
   final LibraryStore store;
 
   @override
+  State<RootTabs> createState() => _RootTabsState();
+}
+
+class _RootTabsState extends State<RootTabs> {
+  int _index = 0;
+
+  static const _items = [
+    GlassTabItem(
+      icon: CupertinoIcons.book,
+      activeIcon: CupertinoIcons.book_fill,
+      label: '阅读中',
+    ),
+    GlassTabItem(
+      icon: CupertinoIcons.rectangle_stack,
+      activeIcon: CupertinoIcons.rectangle_stack_fill,
+      label: '书库',
+    ),
+  ];
+
+  @override
   Widget build(BuildContext context) {
-    return CupertinoTabScaffold(
-      tabBar: CupertinoTabBar(
-        activeColor: kAccent,
-        inactiveColor: CupertinoColors.secondaryLabel.resolveFrom(context),
-        backgroundColor:
-            CupertinoColors.systemBackground.color.withOpacity(0.96),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.book, size: 23),
-            activeIcon: Icon(CupertinoIcons.book_fill, size: 23),
-            label: '阅读中',
+    return Stack(
+      children: [
+        // Content runs edge to edge underneath the floating glass bar.
+        Positioned.fill(
+          child: IndexedStack(
+            index: _index,
+            children: [
+              ReadingNowPage(store: widget.store),
+              LibraryPage(store: widget.store),
+            ],
           ),
-          BottomNavigationBarItem(
-            icon: Icon(CupertinoIcons.rectangle_stack, size: 23),
-            activeIcon: Icon(CupertinoIcons.rectangle_stack_fill, size: 23),
-            label: '书库',
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: GlassTabBar(
+            index: _index,
+            accent: kAccent,
+            items: _items,
+            onChanged: (i) => setState(() => _index = i),
           ),
-        ],
-      ),
-      tabBuilder: (context, index) {
-        if (index == 0) {
-          return CupertinoTabView(
-            builder: (_) => ReadingNowPage(store: store),
-          );
-        }
-        return CupertinoTabView(
-          builder: (_) => LibraryPage(store: store),
-        );
-      },
+        ),
+      ],
     );
   }
 }

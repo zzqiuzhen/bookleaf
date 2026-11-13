@@ -1,8 +1,8 @@
-// Web-only "shader lab": renders the page-curl shader over real page
-// snapshots so the geometry can be tuned visually. Not part of the iOS app.
+// Dev-only "curl lab": renders the page-curl painter over real page snapshots
+// so the geometry can be eyeballed without a device. Not part of the iOS app.
 //
-// Build:  flutter build web -t lib/curl_lab.dart -o build/web_lab
-// Serve :  python -m http.server 8125 -d build/web_lab
+//   flutter build web -t lib/curl_lab.dart -o build/web_lab
+//   python -m http.server 8125 -d build/web_lab
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -12,11 +12,12 @@ import 'ui/reader/curl.dart';
 
 Future<ui.Image> _load(String url) {
   final completer = Completer<ui.Image>();
-  final stream = NetworkImage(url).resolve(ImageConfiguration.empty);
-  stream.addListener(ImageStreamListener(
-    (info, _) => completer.complete(info.image),
-    onError: (e, _) => completer.completeError(e),
-  ));
+  NetworkImage(url).resolve(ImageConfiguration.empty).addListener(
+        ImageStreamListener(
+          (info, _) => completer.complete(info.image),
+          onError: (e, _) => completer.completeError(e),
+        ),
+      );
   return completer.future;
 }
 
@@ -38,30 +39,31 @@ class Lab extends StatefulWidget {
 
 class _LabState extends State<Lab> {
   double radius = 0.030;
-  double tilt = 0.10;
-  bool forward = true;
+  double tilt = 0.0;
+
+  static const progresses = [0.10, 0.30, 0.50, 0.72, 0.90];
 
   @override
   Widget build(BuildContext context) {
-    const progresses = [0.06, 0.18, 0.32, 0.5, 0.7, 0.88];
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(
-        backgroundColor: const Color(0xFF15161A),
+        backgroundColor: const Color(0xFF14151A),
         body: SafeArea(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 child: Row(
                   children: [
-                    const Text('band',
+                    const Text('radius',
                         style: TextStyle(color: Colors.white70, fontSize: 12)),
                     Expanded(
                       child: Slider(
                         value: radius,
-                        min: 0.03,
-                        max: 0.24,
+                        min: 0.015,
+                        max: 0.14,
                         onChanged: (v) => setState(() => radius = v),
                       ),
                     ),
@@ -70,53 +72,21 @@ class _LabState extends State<Lab> {
                     Expanded(
                       child: Slider(
                         value: tilt,
-                        min: -0.4,
-                        max: 0.4,
+                        min: -0.35,
+                        max: 0.35,
                         onChanged: (v) => setState(() => tilt = v),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(() => forward = !forward),
-                      child: Text(forward ? 'forward' : 'backward',
-                          style: const TextStyle(fontSize: 12)),
                     ),
                   ],
                 ),
               ),
               Expanded(
                 child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (final p in progresses)
-                        Padding(
-                          padding: const EdgeInsets.all(6),
-                          child: Column(
-                            children: [
-                              SizedBox(
-                                width: 240,
-                                height: 519,
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: CustomPaint(
-                                    painter: CurlPainter(
-                                      current: forward ? widget.p1 : widget.p2,
-                                      next: forward ? widget.p2 : widget.p1,
-                                      progress: p,
-                                      forward: forward,
-                                      paperColor: const Color(0xFFFBF7EF),
-                                      radiusFactor: radius,
-                                      tilt: tilt,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Text('p=$p',
-                                  style: const TextStyle(
-                                      color: Colors.white54, fontSize: 11)),
-                            ],
-                          ),
-                        ),
+                      _row('forward', true),
+                      _row('backward', false),
                     ],
                   ),
                 ),
@@ -125,6 +95,49 @@ class _LabState extends State<Lab> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _row(String label, bool fwd) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 10, top: 4, bottom: 2),
+          child: Text(label,
+              style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        ),
+        SizedBox(
+          height: 300,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              for (final p in progresses)
+                Padding(
+                  padding: const EdgeInsets.all(5),
+                  child: SizedBox(
+                    width: 138,
+                    height: 298,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: CustomPaint(
+                        painter: CurlPainter(
+                          current: fwd ? widget.p1 : widget.p2,
+                          next: fwd ? widget.p2 : widget.p1,
+                          progress: ValueNotifier<double>(p),
+                          forward: fwd,
+                          paperColor: const Color(0xFFFBF7EF),
+                          radiusFactor: radius,
+                          tilt: tilt,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
