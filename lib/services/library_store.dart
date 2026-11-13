@@ -28,7 +28,41 @@ class LibraryStore extends ChangeNotifier {
     if (!dir.existsSync()) dir.createSync(recursive: true);
     final store = LibraryStore._(dir);
     await store._loadIndex();
+    // Files dropped into the app's Documents folder (Files app / AirDrop /
+    // TrollStore) are picked up on launch.
+    await store.importFromDocuments(docs);
     return store;
+  }
+
+  /// Imports any EPUB/TXT sitting in the app's Documents folder, then removes
+  /// the loose copy (the book now lives inside its own folder).
+  Future<int> importFromDocuments(Directory docs) async {
+    if (memoryOnly) return 0;
+    var count = 0;
+    final candidates = <File>[];
+    for (final base in [docs, Directory('${docs.path}/Inbox')]) {
+      if (!base.existsSync()) continue;
+      for (final entity in base.listSync()) {
+        if (entity is! File) continue;
+        final lower = entity.path.toLowerCase();
+        if (lower.endsWith('.epub') || lower.endsWith('.txt')) {
+          candidates.add(entity);
+        }
+      }
+    }
+    for (final file in candidates) {
+      final name = file.path.split(Platform.pathSeparator).last;
+      try {
+        await importFile(file.path, name);
+        count++;
+        try {
+          file.deleteSync();
+        } catch (_) {}
+      } catch (_) {
+        // Leave unparsable files where they are so the user can see them.
+      }
+    }
+    return count;
   }
 
   File get _indexFile => File('${root.path}/library.json');

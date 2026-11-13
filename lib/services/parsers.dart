@@ -124,6 +124,10 @@ String _firstHeadingText(String source) {
   return '';
 }
 
+/// Matches elements by local name so any namespace prefix works.
+Iterable<XmlElement> _byLocal(XmlNode root, String local) =>
+    root.descendants.whereType<XmlElement>().where((e) => e.name.local == local);
+
 class EpubParser {
   static ParsedBook parse(Uint8List bytes) {
     final archive = ZipDecoder().decodeBytes(bytes, verify: false);
@@ -193,16 +197,15 @@ class EpubParser {
     final tocTitles = <String, String>{};
 
     if (opf != null) {
-      for (final el in opf.findAllElements('title')) {
-        if (el.name.namespaceUri?.contains('purl.org/dc') ?? true) {
-          final t = el.innerText.trim();
-          if (t.isNotEmpty) {
-            title = t;
-            break;
-          }
+      // dc:title / dc:creator — matched by local name so any prefix works.
+      for (final el in _byLocal(opf, 'title')) {
+        final t = el.innerText.trim();
+        if (t.isNotEmpty) {
+          title = t;
+          break;
         }
       }
-      for (final el in opf.findAllElements('creator')) {
+      for (final el in _byLocal(opf, 'creator')) {
         final t = el.innerText.trim();
         if (t.isNotEmpty) {
           author = t;
@@ -211,11 +214,11 @@ class EpubParser {
       }
 
       String? coverId;
-      for (final el in opf.findAllElements('meta')) {
+      for (final el in _byLocal(opf, 'meta')) {
         if (el.getAttribute('name') == 'cover') coverId = el.getAttribute('content');
       }
 
-      for (final el in opf.findAllElements('item')) {
+      for (final el in _byLocal(opf, 'item')) {
         final id = el.getAttribute('id') ?? '';
         final href = el.getAttribute('href') ?? '';
         if (id.isEmpty || href.isEmpty) continue;
@@ -227,7 +230,7 @@ class EpubParser {
         );
       }
 
-      for (final el in opf.findAllElements('itemref')) {
+      for (final el in _byLocal(opf, 'itemref')) {
         final idref = el.getAttribute('idref');
         if (idref != null && manifest.containsKey(idref)) spine.add(idref);
       }
@@ -274,14 +277,9 @@ class EpubParser {
           if (src.isNotEmpty) {
             try {
               final doc = XmlDocument.parse(src);
-              for (final nav in doc.findAllElements('navPoint')) {
-                final label = nav
-                    .findAllElements('text')
-                    .firstOrNull
-                    ?.innerText
-                    .trim();
-                final srcAttr = nav
-                    .findAllElements('content')
+              for (final nav in _byLocal(doc.rootElement, 'navPoint')) {
+                final label = _byLocal(nav, 'text').firstOrNull?.innerText.trim();
+                final srcAttr = _byLocal(nav, 'content')
                     .firstOrNull
                     ?.getAttribute('src')
                     ?.split('#')
@@ -318,7 +316,8 @@ class EpubParser {
       final src = sources[path]!;
       final text = htmlToText(src);
       final heading = tocTitles[path] ?? _firstHeadingText(src);
-      if (text.length < 240) {
+      final hasTocEntry = tocTitles.containsKey(path);
+      if (text.length < 240 && !hasTocEntry) {
         if (pending.isNotEmpty) pending.write('\n\n');
         pending.write(text);
         continue;
