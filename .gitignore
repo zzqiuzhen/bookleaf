@@ -1,0 +1,10 @@
+.dart_tool/
+.packages
+build/
+.idea/
+*.iml
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/ephemeral/
